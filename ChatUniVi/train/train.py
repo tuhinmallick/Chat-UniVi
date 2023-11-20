@@ -186,15 +186,15 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer,
         weight_to_save = get_mm_adapter_state_maybe_zero_3(trainer.model.named_parameters(), keys_to_match)
         trainer.model.config.save_pretrained(output_dir)
 
-        current_folder = output_dir.split('/')[-1]
         parent_folder = os.path.dirname(output_dir)
-        if trainer.args.local_rank == 0 or trainer.args.local_rank == -1:
+        if trainer.args.local_rank in [0, -1]:
+            current_folder = output_dir.split('/')[-1]
             if current_folder.startswith('checkpoint-'):
                 mm_projector_folder = os.path.join(parent_folder, "mm_projector")
                 os.makedirs(mm_projector_folder, exist_ok=True)
                 torch.save(weight_to_save, os.path.join(mm_projector_folder, f'{current_folder}.bin'))
             else:
-                torch.save(weight_to_save, os.path.join(output_dir, f'mm_projector.bin'))
+                torch.save(weight_to_save, os.path.join(output_dir, 'mm_projector.bin'))
 
     if trainer.deepspeed:
         torch.cuda.synchronize()
@@ -318,7 +318,10 @@ def preprocess_multimodal(
                     sentence['value'] = sentence['value'].strip()
 
                 if "mmtag" in conversation_lib.default_conversation.version:
-                    sentence['value'] = sentence['value'].replace(DEFAULT_IMAGE_TOKEN, '<Image>' + DEFAULT_IMAGE_TOKEN + '</Image>')
+                    sentence['value'] = sentence['value'].replace(
+                        DEFAULT_IMAGE_TOKEN,
+                        f'<Image>{DEFAULT_IMAGE_TOKEN}</Image>',
+                    )
 
                 IMAGE_TOKEN_NUM = sentence['value'].count(DEFAULT_IMAGE_TOKEN)
                 if IMAGE_TOKEN_NUM > MAX_IMAGE_LENGTH:
@@ -538,8 +541,10 @@ def preprocess_mpt(
 
         rounds = conversation.split(conv.sep)
         re_rounds = [conv.sep.join(rounds[:3])] # system + user + gpt
-        for conv_idx in range(3, len(rounds), 2):
-            re_rounds.append(conv.sep.join(rounds[conv_idx:conv_idx+2]))    # user + gpt
+        re_rounds.extend(
+            conv.sep.join(rounds[conv_idx : conv_idx + 2])
+            for conv_idx in range(3, len(rounds), 2)
+        )
         cur_len = 0
         target[:cur_len] = IGNORE_INDEX
         for i, rou in enumerate(re_rounds):
@@ -823,8 +828,7 @@ class DataCollatorForSupervisedDataset(object):
             new_images = []
             for image in images:
                 if type(image) is list:
-                    for i in image:
-                        new_images.append(i)
+                    new_images.extend(iter(image))
                 else:
                     new_images.append(image)
             images = new_images
@@ -1073,7 +1077,7 @@ def train():
         non_lora_state_dict = get_peft_state_non_lora_maybe_zero_3(
             model.named_parameters()
         )
-        if training_args.local_rank == 0 or training_args.local_rank == -1:
+        if training_args.local_rank in [0, -1]:
             model.config.save_pretrained(training_args.output_dir)
             model.save_pretrained(training_args.output_dir, state_dict=state_dict)
             torch.save(non_lora_state_dict, os.path.join(training_args.output_dir, 'non_lora_trainables.bin'))

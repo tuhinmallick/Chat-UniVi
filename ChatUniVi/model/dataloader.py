@@ -19,8 +19,8 @@ def _get_rawvideo_dec(video_path, image_processor, max_frames=64, image_resoluti
     else:
         start_time = int(s)
         end_time = int(e)
-        start_time = start_time if start_time >= 0. else 0.
-        end_time = end_time if end_time >= 0. else 0.
+        start_time = max(start_time, 0.)
+        end_time = max(end_time, 0.)
         if start_time > end_time:
             start_time, end_time = end_time, start_time
         elif start_time == end_time:
@@ -52,15 +52,12 @@ def _get_rawvideo_dec(video_path, image_processor, max_frames=64, image_resoluti
         patch_images = [image_processor.preprocess(img, return_tensors='pt')['pixel_values'][0] for img in patch_images]
         slice_len = len(patch_images)
 
-        max_video_length = max_video_length if max_video_length > slice_len else slice_len
-        if slice_len < 1:
-            pass
-        else:
+        max_video_length = max(max_video_length, slice_len)
+        if slice_len >= 1:
             while len(patch_images) < max_frames:
                 patch_images.append(torch.zeros((3, image_resolution, image_resolution)))
-            # video[:slice_len, ...] = patch_images
     else:
-        print("video path: {} error.".format(video_path))
+        print(f"video path: {video_path} error.")
 
     video_mask[:max_video_length] = [1] * max_video_length
 

@@ -16,14 +16,14 @@ model_path = ""  # model_path = [model path]
 assert model_path is not ""
 
 def save_image_to_local(image):
-    filename = os.path.join('temp', next(tempfile._get_candidate_names()) + '.jpg')
+    filename = os.path.join('temp', f'{next(tempfile._get_candidate_names())}.jpg')
     image = Image.open(image)
     image.save(filename)
     return filename
 
 
 def save_video_to_local(video_path):
-    filename = os.path.join('temp', next(tempfile._get_candidate_names()) + '.mp4')
+    filename = os.path.join('temp', f'{next(tempfile._get_candidate_names())}.mp4')
 
     if os.path.exists(video_path):
         vreader = VideoReader(video_path, ctx=cpu(0))
@@ -41,7 +41,7 @@ def save_video_to_local(video_path):
         t_stride = int(round(float(fps) / sample_fps))
         all_pos = list(range(f_start, f_end + 1, t_stride))
         sample_pos = all_pos
-        patch_images = [f for f in vreader.get_batch(sample_pos).asnumpy()]
+        patch_images = list(vreader.get_batch(sample_pos).asnumpy())
 
     writer = imageio.get_writer(filename, format='FFMPEG', fps=8)
     for frame in patch_images:
@@ -54,13 +54,12 @@ def generate(image1, image2, video, textbox_in, first_run, state, state_, images
 
     flag = 1
     if not textbox_in:
-        if len(state_.messages) > 0:
-            textbox_in = state_.messages[-1][1]
-            state_.messages.pop(-1)
-            flag = 0
-        else:
+        if len(state_.messages) <= 0:
             return "Please enter instruction"
 
+        textbox_in = state_.messages[-1][1]
+        state_.messages.pop(-1)
+        flag = 0
     image1 = image1 if image1 else "none"
     image2 = image2 if image2 else "none"
     video = video if video else "none"
@@ -70,7 +69,7 @@ def generate(image1, image2, video, textbox_in, first_run, state, state_, images
         state_ = conv_templates[conv_mode].copy()
         images_tensor = []
 
-    first_run = False if len(state.messages) > 0 else True
+    first_run = len(state.messages) <= 0
 
     text_en_in = textbox_in.replace("picture", "image")
 

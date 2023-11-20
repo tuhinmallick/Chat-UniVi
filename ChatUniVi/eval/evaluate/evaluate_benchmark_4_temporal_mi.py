@@ -10,8 +10,7 @@ from multiprocessing.pool import Pool
 def read_jsonl(file):
     results = []
     with open(file, encoding='utf-8') as f:
-        for item in jsonlines.Reader(f):
-            results.append(item)
+        results.extend(iter(jsonlines.Reader(f)))
     return results
 
 
@@ -22,8 +21,7 @@ def parse_args():
     parser.add_argument("--output_json", required=True, help="The path to save annotation final combined json file.")
     parser.add_argument("--api_key", required=True, help="OpenAI API key.")
     parser.add_argument("--num_tasks", required=True, type=int, help="Number of splits.")
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 
 def annotate(prediction_set, caption_files, output_dir):
@@ -148,7 +146,7 @@ def main():
             print(f"incomplete_files: {len(incomplete_files)}")
 
             # Break the loop when there are no incomplete files
-            if len(incomplete_files) == 0:
+            if not incomplete_files:
                 break
             if len(incomplete_files) <= num_tasks:
                 num_tasks = 1
@@ -185,7 +183,7 @@ def main():
     # Calculate average score
     score_sum = 0
     count = 0
-    for key, result in combined_contents.items():
+    for result in combined_contents.values():
         count += 1
         score_match = result[0]['score']
         score = int(score_match)

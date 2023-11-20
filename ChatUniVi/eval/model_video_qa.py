@@ -44,8 +44,8 @@ def _get_rawvideo_dec(video_path, image_processor, max_frames=MAX_IMAGE_LENGTH, 
     else:
         start_time = int(s)
         end_time = int(e)
-        start_time = start_time if start_time >= 0. else 0.
-        end_time = end_time if end_time >= 0. else 0.
+        start_time = max(start_time, 0.)
+        end_time = max(end_time, 0.)
         if start_time > end_time:
             start_time, end_time = end_time, start_time
         elif start_time == end_time:
@@ -77,13 +77,11 @@ def _get_rawvideo_dec(video_path, image_processor, max_frames=MAX_IMAGE_LENGTH, 
         patch_images = torch.stack([image_processor.preprocess(img, return_tensors='pt')['pixel_values'][0] for img in patch_images])
         slice_len = patch_images.shape[0]
 
-        max_video_length = max_video_length if max_video_length > slice_len else slice_len
-        if slice_len < 1:
-            pass
-        else:
+        max_video_length = max(max_video_length, slice_len)
+        if slice_len >= 1:
             video[:slice_len, ...] = patch_images
     else:
-        print("video path: {} error.".format(video_path))
+        print(f"video path: {video_path} error.")
 
     video_mask[:max_video_length] = [1] * max_video_length
 
@@ -121,93 +119,90 @@ def eval_model(args):
 
     answers_file = os.path.expanduser(args.answers_file)
     os.makedirs(os.path.dirname(answers_file), exist_ok=True)
-    ans_file = open(answers_file, "w")
+    with open(answers_file, "w") as ans_file:
+        video_formats = ['.mp4', '.avi', '.mov', '.mkv']
 
-    video_formats = ['.mp4', '.avi', '.mov', '.mkv']
+        # Iterate over each sample in the ground truth file
+        for sample in tqdm(gt_contents):
+            sample_set = sample
+            qs = sample['question']
 
-    # Iterate over each sample in the ground truth file
-    for sample in tqdm(gt_contents):
-        sample_set = sample
-        qs = sample['question']
+            # Load the video file
+            for fmt in video_formats:  # Added this line
+                video_name = sample['video_name']
+                temp_path = os.path.join(args.video_folder, f"{video_name}{fmt}")
+                if os.path.exists(temp_path):
+                    video_path = temp_path
+                    break
 
-        # Load the video file
-        for fmt in video_formats:  # Added this line
-            video_name = sample['video_name']
-            temp_path = os.path.join(args.video_folder, f"{video_name}{fmt}")
-            if os.path.exists(temp_path):
-                video_path = temp_path
-                break
+                video_name = "v_" + sample['video_name']
+                temp_path = os.path.join(args.video_folder, f"{video_name}{fmt}")
+                if os.path.exists(temp_path):
+                    video_path = temp_path
+                    break
 
-            video_name = "v_" + sample['video_name']
-            temp_path = os.path.join(args.video_folder, f"{video_name}{fmt}")
-            if os.path.exists(temp_path):
-                video_path = temp_path
-                break
+            # Check if the video exists
+            if video_path is not None:  # Modified this line
+                if args.max_frames:
+                    video_frames, _ = _get_rawvideo_dec(video_path, image_processor, max_frames=args.max_frames)
+                else:
+                    video_frames, _ = _get_rawvideo_dec(video_path, image_processor, max_frames=MAX_IMAGE_LENGTH)
 
-        # Check if the video exists
-        if video_path is not None:  # Modified this line
-            if args.max_frames:
-                video_frames, _ = _get_rawvideo_dec(video_path, image_processor, max_frames=args.max_frames)
-            else:
-                video_frames, _ = _get_rawvideo_dec(video_path, image_processor, max_frames=MAX_IMAGE_LENGTH)
+            try:
+                cur_prompt = qs
+                if model.config.mm_use_im_start_end:
+                    qs = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN * MAX_IMAGE_LENGTH + DEFAULT_IM_END_TOKEN + '\n' + qs
+                else:
+                    qs = DEFAULT_IMAGE_TOKEN * MAX_IMAGE_LENGTH + '\n' + qs
 
-        try:
-            cur_prompt = qs
-            if model.config.mm_use_im_start_end:
-                qs = DEFAULT_IM_START_TOKEN + DEFAULT_IMAGE_TOKEN * MAX_IMAGE_LENGTH + DEFAULT_IM_END_TOKEN + '\n' + qs
-            else:
-                qs = DEFAULT_IMAGE_TOKEN * MAX_IMAGE_LENGTH + '\n' + qs
+                conv = conv_templates[args.conv_mode].copy()
+                conv.append_message(conv.roles[0], qs)
+                conv.append_message(conv.roles[1], None)
+                prompt = conv.get_prompt()
 
-            conv = conv_templates[args.conv_mode].copy()
-            conv.append_message(conv.roles[0], qs)
-            conv.append_message(conv.roles[1], None)
-            prompt = conv.get_prompt()
+                input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(
+                    0).cuda()
 
-            input_ids = tokenizer_image_token(prompt, tokenizer, IMAGE_TOKEN_INDEX, return_tensors='pt').unsqueeze(
-                0).cuda()
+                stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
+                keywords = [stop_str]
+                stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
 
-            stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
-            keywords = [stop_str]
-            stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
+                with torch.inference_mode():
+                    output_ids = model.generate(
+                        input_ids,
+                        images=torch.from_numpy(video_frames).half().cuda(),
+                        do_sample=True,
+                        temperature=args.temperature,
+                        top_p=args.top_p,
+                        num_beams=args.num_beams,
+                        output_scores=True,
+                        return_dict_in_generate=True,
+                        max_new_tokens=1024,
+                        use_cache=True,
+                        stopping_criteria=[stopping_criteria])
 
-            with torch.inference_mode():
-                output_ids = model.generate(
-                    input_ids,
-                    images=torch.from_numpy(video_frames).half().cuda(),
-                    do_sample=True,
-                    temperature=args.temperature,
-                    top_p=args.top_p,
-                    num_beams=args.num_beams,
-                    output_scores=True,
-                    return_dict_in_generate=True,
-                    max_new_tokens=1024,
-                    use_cache=True,
-                    stopping_criteria=[stopping_criteria])
+                output_ids = output_ids.sequences
+                input_token_len = input_ids.shape[1]
+                n_diff_input_output = (input_ids != output_ids[:, :input_token_len]).sum().item()
+                if n_diff_input_output > 0:
+                    print(f'[Warning] {n_diff_input_output} output_ids are not the same as the input_ids')
+                outputs = tokenizer.batch_decode(output_ids[:, input_token_len:], skip_special_tokens=True)[0]
+                outputs = outputs.strip()
+                if outputs.endswith(stop_str):
+                    outputs = outputs[:-len(stop_str)]
+                outputs = outputs.strip()
 
-            output_ids = output_ids.sequences
-            input_token_len = input_ids.shape[1]
-            n_diff_input_output = (input_ids != output_ids[:, :input_token_len]).sum().item()
-            if n_diff_input_output > 0:
-                print(f'[Warning] {n_diff_input_output} output_ids are not the same as the input_ids')
-            outputs = tokenizer.batch_decode(output_ids[:, input_token_len:], skip_special_tokens=True)[0]
-            outputs = outputs.strip()
-            if outputs.endswith(stop_str):
-                outputs = outputs[:-len(stop_str)]
-            outputs = outputs.strip()
-
-            ans_id = shortuuid.uuid()
-            ans_file.write(json.dumps({"video_name": sample['video_name'],
-                                       "prompt": cur_prompt,
-                                       "text": outputs,
-                                       "answer_id": ans_id,
-                                       "model_id": model_name,
-                                       "answer": sample['answer'],
-                                       "metadata": {}}) + "\n")
-            ans_file.flush()
-        except Exception as e:
-            print(f"Error processing video file '{video_name}': {e}")
-
-    ans_file.close()
+                ans_id = shortuuid.uuid()
+                ans_file.write(json.dumps({"video_name": sample['video_name'],
+                                           "prompt": cur_prompt,
+                                           "text": outputs,
+                                           "answer_id": ans_id,
+                                           "model_id": model_name,
+                                           "answer": sample['answer'],
+                                           "metadata": {}}) + "\n")
+                ans_file.flush()
+            except Exception as e:
+                print(f"Error processing video file '{video_name}': {e}")
 
 
 if __name__ == "__main__":

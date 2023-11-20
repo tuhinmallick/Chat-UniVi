@@ -23,7 +23,11 @@ def tokenizer_image_token(prompt, tokenizer, image_token_index=IMAGE_TOKEN_INDEX
 
     input_ids = []
     offset = 0
-    if len(prompt_chunks) > 0 and len(prompt_chunks[0]) > 0 and prompt_chunks[0][0] == tokenizer.bos_token_id:
+    if (
+        prompt_chunks
+        and len(prompt_chunks[0]) > 0
+        and prompt_chunks[0][0] == tokenizer.bos_token_id
+    ):
         offset = 1
         input_ids.append(prompt_chunks[0][0])
 
@@ -42,7 +46,7 @@ def get_model_name_from_path(model_path):
     model_path = model_path.strip("/")
     model_paths = model_path.split("/")
     if model_paths[-1].startswith('checkpoint-'):
-        return model_paths[-2] + "_" + model_paths[-1]
+        return f"{model_paths[-2]}_{model_paths[-1]}"
     else:
         return model_paths[-1]
 
@@ -67,7 +71,4 @@ class KeywordsStoppingCriteria(StoppingCriteria):
             if output_ids[0, -keyword_id.shape[0]:] == keyword_id:
                 return True
         outputs = self.tokenizer.batch_decode(output_ids[:, -offset:], skip_special_tokens=True)[0]
-        for keyword in self.keywords:
-            if keyword in outputs:
-                return True
-        return False
+        return any(keyword in outputs for keyword in self.keywords)

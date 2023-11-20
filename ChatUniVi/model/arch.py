@@ -64,7 +64,11 @@ class MetaModel:
         if pretrain_mm_mlp_adapter is not None:
             mm_projector_weights = torch.load(pretrain_mm_mlp_adapter, map_location='cpu')
             def get_w(weights, keyword):
-                return {k.split(keyword + '.')[1]: v for k, v in weights.items() if keyword in k}
+                return {
+                    k.split(f'{keyword}.')[1]: v
+                    for k, v in weights.items()
+                    if keyword in k
+                }
 
             self.mm_projector.load_state_dict(get_w(mm_projector_weights, 'mm_projector'))
 
@@ -94,8 +98,7 @@ class ChatUniViMetaForCausalLM(ABC):
         return self.get_model().get_vision_tower()
 
     def encode_images(self, images):
-        image_features = self.get_model().get_vision_tower()(images, select_feature="patch")
-        return image_features
+        return self.get_model().get_vision_tower()(images, select_feature="patch")
 
     def positional_encoding(self, x, num_features=1024, max_len=64):
         p = torch.zeros((1, max_len, num_features))
@@ -109,8 +112,8 @@ class ChatUniViMetaForCausalLM(ABC):
 
     def project(self, image_features, input_type="image"):
         if self.get_model().use_cluster:
+            cluster_image_features = []
             if input_type == "image":
-                cluster_image_features = []
                 token_dict = {'x': image_features,
                               'token_num': image_features.size(1),
                               'idx_token': torch.arange(image_features.size(1))[None, :].repeat(
@@ -128,8 +131,6 @@ class ChatUniViMetaForCausalLM(ABC):
                 token_dict = self.get_model().block2(self.get_model().ctm2(token_dict))
                 cluster_image_features.append(token_dict["x"])
 
-                image_features = torch.cat(cluster_image_features, dim=1)
-                image_features = image_features.to(self.get_model().mm_projector.weight.dtype)
             else:
                 cls_features = torch.mean(image_features, dim=1, keepdim=False).unsqueeze(0).clone()
                 token_dict = {'x': cls_features,
@@ -145,13 +146,12 @@ class ChatUniViMetaForCausalLM(ABC):
 
                 max_len = 0
                 for id, i in enumerate(down_dict["idx_token"][0].tolist()):
-                    if i not in events:
-                        events[i] = [id]
-                    else:
+                    if i in events:
                         events[i].append(id)
-                    max_len = len(events[i]) if max_len < len(events[i]) else max_len
+                    else:
+                        events[i] = [id]
+                    max_len = max(max_len, len(events[i]))
 
-                cluster_image_features = []
                 token_dict = {'x': image_features,
                               'token_num': image_features.size(1),
                               'idx_token': torch.arange(image_features.size(1))[None, :].repeat(
@@ -164,7 +164,7 @@ class ChatUniViMetaForCausalLM(ABC):
                 token_dict1 = self.get_model().block1(self.get_model().ctm1(token_dict0))
                 token_dict2 = self.get_model().block2(self.get_model().ctm2(token_dict1))
 
-                for id, key in enumerate(events):
+                for key in events:
                     cur_image_features0 = torch.cat([token_dict0["x"][i] for i in events[key]], dim=0).unsqueeze(0)
                     token_dict = {'x': cur_image_features0,
                                   'token_num': cur_image_features0.size(1),
@@ -204,14 +204,12 @@ class ChatUniViMetaForCausalLM(ABC):
                     cur_token_dict2 = self.get_model().block2(self.get_model().ctm2(token_dict))
                     cluster_image_features.append(cur_token_dict2["x"])
 
-                image_features = torch.cat(cluster_image_features, dim=1)
-                image_features = image_features.to(self.get_model().mm_projector.weight.dtype)
-
-        else:
-            if input_type == "video":
-                image_features, cls_features = torch.mean(image_features, dim=0, keepdim=False).unsqueeze(
-                    0), torch.mean(image_features, dim=1, keepdim=False).unsqueeze(0)
-                image_features = torch.cat([image_features, cls_features], dim=1)
+            image_features = torch.cat(cluster_image_features, dim=1)
+            image_features = image_features.to(self.get_model().mm_projector.weight.dtype)
+        elif input_type == "video":
+            image_features, cls_features = torch.mean(image_features, dim=0, keepdim=False).unsqueeze(
+                0), torch.mean(image_features, dim=1, keepdim=False).unsqueeze(0)
+            image_features = torch.cat([image_features, cls_features], dim=1)
 
         image_features = self.get_model().mm_projector(image_features)
         return image_features
