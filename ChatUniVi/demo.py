@@ -43,8 +43,8 @@ class Chat:
         else:
             start_time = int(s)
             end_time = int(e)
-            start_time = start_time if start_time >= 0. else 0.
-            end_time = end_time if end_time >= 0. else 0.
+            start_time = max(start_time, 0.)
+            end_time = max(end_time, 0.)
             if start_time > end_time:
                 start_time, end_time = end_time, start_time
             elif start_time == end_time:
@@ -70,8 +70,7 @@ class Chat:
             else:
                 sample_pos = all_pos
 
-            patch_images = [Image.fromarray(f) for f in vreader.get_batch(sample_pos).asnumpy()]
-            return patch_images
+            return [Image.fromarray(f) for f in vreader.get_batch(sample_pos).asnumpy()]
 
     @torch.inference_mode()
     def generate(self, images_tensor: list, prompt: str, first_run: bool, state):

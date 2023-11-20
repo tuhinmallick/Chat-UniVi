@@ -36,11 +36,10 @@ if __name__ == '__main__0':
                 if 'category' in review:
                     scores[review['category']].append(review['tuple'])
                     scores['all'].append(review['tuple'])
+                elif 'tuple' in review:
+                    scores['all'].append(review['tuple'])
                 else:
-                    if 'tuple' in review:
-                        scores['all'].append(review['tuple'])
-                    else:
-                        scores['all'].append(review['score'])
+                    scores['all'].append(review['score'])
         for k, v in sorted(scores.items()):
             stats = np.asarray(v).mean(0).tolist()
             stats = [round(x, 3) for x in stats]

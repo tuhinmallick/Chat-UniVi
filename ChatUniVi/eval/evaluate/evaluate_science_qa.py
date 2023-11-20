@@ -47,22 +47,21 @@ if __name__ == "__main__":
     split_problems = {idx: problems[idx] for idx in split_indices}
 
     results = {'correct': [], 'incorrect': []}
-    sqa_results = {}
-    sqa_results['acc'] = None
-    sqa_results['correct'] = None
-    sqa_results['count'] = None
-    sqa_results['results'] = {}
-    sqa_results['outputs'] = {}
-
-    sqa_results['NAT'] = []
-    sqa_results['SOC'] = []
-    sqa_results['LAN'] = []
-    sqa_results['TXT'] = []
-    sqa_results['IMG'] = []
-    sqa_results['NO'] = []
-    sqa_results['G1-6'] = []
-    sqa_results['G7-12'] = []
-
+    sqa_results = {
+        'acc': None,
+        'correct': None,
+        'count': None,
+        'results': {},
+        'outputs': {},
+        'NAT': [],
+        'SOC': [],
+        'LAN': [],
+        'TXT': [],
+        'IMG': [],
+        'NO': [],
+        'G1-6': [],
+        'G7-12': [],
+    }
     for prob_id, prob in split_problems.items():
         if prob_id not in predictions:
             continue
@@ -71,11 +70,7 @@ if __name__ == "__main__":
 
         pattern = re.compile(r'The answer is ([A-Z]).')
         res = pattern.findall(pred_text)
-        if len(res) == 1:
-            answer = res[0]  # 'A', 'B', ...
-        else:
-            answer = pred['pred']
-
+        answer = res[0] if len(res) == 1 else pred['pred']
         pred_idx = get_pred_idx(answer, prob['choices'], args.options)
 
         analysis = {

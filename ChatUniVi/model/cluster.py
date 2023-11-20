@@ -73,8 +73,7 @@ def drop_path(x, drop_prob: float = 0., training: bool = False):
     shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
     random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
     random_tensor.floor_()  # binarize
-    output = x.div(keep_prob) * random_tensor
-    return output
+    return x.div(keep_prob) * random_tensor
 
 
 class DropPath(nn.Module):
@@ -104,8 +103,7 @@ def index_points(points, idx):
     repeat_shape = list(idx.shape)
     repeat_shape[0] = 1
     batch_indices = torch.arange(B, dtype=torch.long).to(device).view(view_shape).repeat(repeat_shape)
-    new_points = points[batch_indices, idx, :]
-    return new_points
+    return points[batch_indices, idx, :]
 
 
 def cluster_dpc_knn(token_dict, cluster_num, k=5, token_mask=None):
@@ -214,13 +212,13 @@ def merge_tokens(token_dict, idx_cluster, cluster_num, token_weight=None):
     agg_weight_new = agg_weight * weight_t
     agg_weight_new / agg_weight_new.max(dim=1, keepdim=True)[0]
 
-    out_dict = {}
-    out_dict['x'] = x_merged
-    out_dict['token_num'] = cluster_num
-    out_dict['idx_token'] = idx_token_new
-    out_dict['agg_weight'] = agg_weight_new
-    out_dict['mask'] = None
-    return out_dict
+    return {
+        'x': x_merged,
+        'token_num': cluster_num,
+        'idx_token': idx_token_new,
+        'agg_weight': agg_weight_new,
+        'mask': None,
+    }
 
 
 class CTM(nn.Module):
@@ -278,7 +276,7 @@ class TCBlock(nn.Module):
                 m.bias.data.zero_()
 
     def forward(self, inputs):
-        if isinstance(inputs, tuple) or isinstance(inputs, list):
+        if isinstance(inputs, (tuple, list)):
             q_dict, kv_dict = inputs
         else:
             q_dict, kv_dict = inputs, None

@@ -31,23 +31,15 @@ def setup_for_distributed(is_master):
 
 
 def is_dist_avail_and_initialized():
-    if not dist.is_available():
-        return False
-    if not dist.is_initialized():
-        return False
-    return True
+    return False if not dist.is_available() else bool(dist.is_initialized())
 
 
 def get_world_size():
-    if not is_dist_avail_and_initialized():
-        return 1
-    return dist.get_world_size()
+    return 1 if not is_dist_avail_and_initialized() else dist.get_world_size()
 
 
 def get_rank():
-    if not is_dist_avail_and_initialized():
-        return 0
-    return dist.get_rank()
+    return 0 if not is_dist_avail_and_initialized() else dist.get_rank()
 
 
 def is_main_process():
@@ -72,9 +64,7 @@ def init_distributed_mode(args):
     torch.cuda.set_device(args.gpu)
     args.dist_backend = "nccl"
     print(
-        "| distributed init (rank {}, world {}): {}".format(
-            args.rank, args.world_size, args.dist_url
-        ),
+        f"| distributed init (rank {args.rank}, world {args.world_size}): {args.dist_url}",
         flush=True,
     )
     torch.distributed.init_process_group(
